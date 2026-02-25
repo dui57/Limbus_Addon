@@ -1462,26 +1462,43 @@
   cursor:pointer;
   transition: background .15s ease, border-color .15s ease, transform .08s ease;
 }
-/* 매치 화면 "현재 뽑은 스킬" 전용 축소 */
+/* 매치 화면 "현재 뽑은 스킬" 2열 배치 + 축소 */
+#myPickedSkills,
+#enemyPickedSkills{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap:8px;
+  align-items:start;
+}
+
+#myPickedSkills .skillPickItem,
+#enemyPickedSkills .skillPickItem{
+  margin:0 !important;
+}
+
 .matchPickedMini{
-  transform: none !important;
-  width: auto !important;
-  margin-bottom: 8px !important;
-  zoom: .58;                 /* 크롬/엣지에서 레이아웃까지 같이 축소 */
+  margin:0 !important;
+  width:auto !important;
+  zoom:.36;                 /* 기존보다 더 축소 */
   transform-origin: top left;
 }
 
+/* 줌으로 생기는 아래 여백 줄이기 */
 #myPickedSkills .matchPickedMini,
 #enemyPickedSkills .matchPickedMini{
-  pointer-events: auto;
-  display: block;
+  display:block;
 }
 
-#myPickedSkills,
-#enemyPickedSkills{
-  overflow: hidden;
+/* 카드 안 이미지/본문 과한 높이 조금 더 압축 */
+#myPickedSkills .matchPickedMini .skListFrame,
+#enemyPickedSkills .matchPickedMini .skListFrame{
+  margin-bottom:4px !important;
 }
-.skListCard:hover{
+
+#myPickedSkills .matchPickedMini .skListFx,
+#enemyPickedSkills .matchPickedMini .skListFx{
+  max-height:70px !important;
+}.skListCard:hover{
   background: rgba(255,255,255,.04);
   border-color: rgba(255,255,255,.18);
 }
@@ -4777,15 +4794,25 @@ function renderPickedSkills(el, list){
     innerImg.alt = "skill image";
 
     // ✅ imgKey(기존) 또는 imgSrc(JSON 경로) 지원
-    if(s.imgSrc){
-      innerImg.src = s.imgSrc;
-    }else if(s.imgKey && typeof idbGetBlob === "function" && typeof makeObjectURLFromBlob === "function"){
-      idbGetBlob(s.imgKey).then(blob => {
-        innerImg.src = blob ? makeObjectURLFromBlob(blob) : "";
-      }).catch(()=>{ innerImg.src = ""; });
+// ✅ imgKey(기존) / imgSrc(JSON 경로) / AI 스킬명 fallback 지원
+if(s.imgSrc){
+  innerImg.src = s.imgSrc;
+}else if(s.imgKey && typeof idbGetBlob === "function" && typeof makeObjectURLFromBlob === "function"){
+  idbGetBlob(s.imgKey).then(blob => {
+    if(blob){
+      innerImg.src = makeObjectURLFromBlob(blob);
     }else{
-      innerImg.src = "";
+      const fb = (typeof getAiSkillImageFallback === "function") ? getAiSkillImageFallback(getSkillName(s)) : "";
+      innerImg.src = fb || "";
     }
+  }).catch(()=>{
+    const fb = (typeof getAiSkillImageFallback === "function") ? getAiSkillImageFallback(getSkillName(s)) : "";
+    innerImg.src = fb || "";
+  });
+}else{
+  const fb = (typeof getAiSkillImageFallback === "function") ? getAiSkillImageFallback(getSkillName(s)) : "";
+  innerImg.src = fb || "";
+}
 
     inner.appendChild(innerImg);
     frameBox.appendChild(inner);
@@ -4938,14 +4965,42 @@ async function tryRenderPortrait(imgEl, data){
 function createBattleUnitFromChar(data, side){
   // ✅ {char:{...}} 래퍼로 들어오는 경우 자동 언랩
   const src = (data && data.char) ? data.char : (data || {});
-  const core = src?.core || {};
+  const rawCore = src?.core || {};
+const st = rawCore?.status || {};
+
+// ✅ 매치 화면에서 쓰기 쉬운 형태로 core 정규화
+const core = {
+  ...rawCore,
+  status: {
+    ...st,
+    hp: st.hp ?? rawCore.hp ?? rawCore.HP ?? "-",
+    defLv: st.defLv ?? rawCore.defLv ?? rawCore.defLevel ?? "-",
+    spdMin: st.spdMin ?? rawCore.spdMin ?? rawCore.speedMin ?? 1,
+    spdMax: st.spdMax ?? rawCore.spdMax ?? rawCore.speedMax ?? 6,
+    skillSlots: st.skillSlots ?? rawCore.skillSlots ?? 1,
+    sanity: 0
+  },
+
+  // 렌더러 호환용 별칭들
+  hp: rawCore.hp ?? st.hp ?? "-",
+  defLevel: rawCore.defLevel ?? rawCore.defLv ?? st.defLv ?? "-",
+  sanity: 0,
+  speedMin: rawCore.speedMin ?? rawCore.spdMin ?? st.spdMin ?? 1,
+  speedMax: rawCore.speedMax ?? rawCore.spdMax ?? st.spdMax ?? 6,
+  skillSlots: rawCore.skillSlots ?? st.skillSlots ?? 1,
+
+  // 내성/흐트러짐 호환
+  physRes: rawCore.physRes || rawCore.physicalRes || rawCore.phys || {},
+  sinRes: rawCore.sinRes || rawCore.sins || {},
+  staggers: rawCore.staggers || rawCore.staggerThresholds || rawCore.stagger || rawCore.staggerPoints || []
+};
 
   const normalSkills = getNormalSkills(src);
   const specialSkills = getSpecialSkills(src);
 
   return {
     side,
-    raw: src,                 // ✅ 반드시 언랩된 char 저장
+    raw: { ...src, core },                 // ✅ 반드시 언랩된 char 저장
     core,
     slotCount: getSlotCount(core),
     selectedSlot: 0,
@@ -5013,6 +5068,9 @@ renderResLine(
 renderKeywordWrap(EL_MATCH.myKeywords, collectKeywords(myData));
 renderKeywordWrap(EL_MATCH.enemyKeywords, collectKeywords(enData));
 
+ensureKwTooltipBound(EL_MATCH.myKeywords);
+ensureKwTooltipBound(EL_MATCH.enemyKeywords);
+
   renderChipWrap(EL_MATCH.myStatus, MATCH_STATE.my.statusChips);
   renderChipWrap(EL_MATCH.enemyStatus, MATCH_STATE.enemy.statusChips);
 
@@ -5068,39 +5126,60 @@ function injectPassiveKeywordTokens(textRaw, unitRaw){
 
   // 기본/대표
   for(const k of (Array.isArray(BASE_KEYWORDS) ? BASE_KEYWORDS : [])){
-    if(k?.name) allKw.push({ name:String(k.name), state:(k.state==="debuff"?"debuff":"buff") });
+    if(k?.name) allKw.push({
+      name: String(k.name),
+      state: (k.state === "debuff") ? "debuff" : "buff"
+    });
   }
   for(const k of (Array.isArray(REP_KEYWORDS) ? REP_KEYWORDS : [])){
-    if(k?.name) allKw.push({ name:String(k.name), state:(k.state==="debuff"?"debuff":"buff") });
+    if(k?.name) allKw.push({
+      name: String(k.name),
+      state: (k.state === "debuff") ? "debuff" : "buff"
+    });
   }
 
   // 현재 유닛 전용
   for(const k of (Array.isArray(unitRaw?.dedicatedKeywords) ? unitRaw.dedicatedKeywords : [])){
-    if(k?.name) allKw.push({ name:String(k.name), state:(k.state==="debuff"?"debuff":"buff") });
+    if(k?.name) allKw.push({
+      name: String(k.name),
+      state: (k.state === "debuff") ? "debuff" : "buff"
+    });
   }
 
-  // 긴 이름 먼저
-  allKw.sort((a,b) => b.name.length - a.name.length);
-
-  // ✅ 이미 [[kw:...]] 토큰 구간은 건드리지 않기
-  const parts = text.split(/(\[\[kw:[^\]]+\]\])/g);
-
-  for(let i=0; i<parts.length; i++){
-    const part = parts[i];
-
-    // 토큰 조각은 그대로
-    if(/^\[\[kw:[^\]]+\]\]$/.test(part)) continue;
-
-    let out = part;
-    for(const kw of allKw){
-      const escaped = kw.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const token = `[[kw:${kw.state}:${kw.name}]]`;
-      out = out.replace(new RegExp(escaped, "g"), token);
-    }
-    parts[i] = out;
+  // 중복 제거 + 긴 이름 우선
+  const seen = new Set();
+  const uniq = [];
+  for(const kw of allKw){
+    const key = `${kw.state}::${kw.name}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(kw);
   }
+  uniq.sort((a,b) => b.name.length - a.name.length);
 
-  return parts.join("");
+  if(!uniq.length) return text;
+
+  // ✅ 이미 들어있는 [[kw:...]] 토큰은 보호
+  const tokenStore = [];
+  text = text.replace(/\[\[kw:(buff|debuff):([^\]]+)\]\]/g, (m) => {
+    const idx = tokenStore.push(m) - 1;
+    return `__KW_TOKEN_${idx}__`;
+  });
+
+  // ✅ "한 번에" 치환 (토큰 내부 재치환 방지)
+  const escapedNames = uniq.map(kw => kw.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const rx = new RegExp(escapedNames.join("|"), "g");
+
+  text = text.replace(rx, (matched) => {
+    const hit = uniq.find(kw => kw.name === matched);
+    if(!hit) return matched;
+    return `[[kw:${hit.state}:${hit.name}]]`;
+  });
+
+  // 보호 토큰 복원
+  text = text.replace(/__KW_TOKEN_(\d+)__/g, (m, n) => tokenStore[Number(n)] || m);
+
+  return text;
 }
 function openMatchPassiveModal(unitRaw){
   const src = (unitRaw && unitRaw.char) ? unitRaw.char : (unitRaw || {});
@@ -7121,6 +7200,8 @@ const REP_KEYWORDS = [
   { name:"진동", state:"debuff", icon:"assets/icon_rep_tremor.png", text:"진동 폭발 스킬로 피격 시, 효과 위력만큼 흐트러짐 손상. 턴 종료 후 횟수 1 감소" },
   { name:"파열", state:"debuff", icon:"assets/icon_rep_rupture.png", text:"공격 스킬로 피격 시, 효과 위력만큼 고정 체력 피해를 받음. 피격 후 횟수 1 감소" },
   { name:"침잠", state:"debuff", icon:"assets/icon_rep_sinking.png", text:"공격 스킬로 피격 시, 효과 위력만큼 고정 정신력 피해를 받음 (정신력이 없는 대상에게는 우울 속성 피해로 적용됨) 피격 후 횟수 1 감소" },
+  { name:"진동 폭발", state:"debuff", icon:"assets/icon_rep_tremor_boom.png", text:"대상의 진동 위력만큼 흐트러짐 손상을 입힘" },
+  { name:"진폭 변환", state:"debuff", icon:"assets/icon_rep_tremor_urthim.png", text:"대상의 진동 또는 변경된 진동을 다른 유형의 진동으로 변경함. 변경 시 기존 효과의 위력, 횟수가 유지됨" },
   // buff
   { name:"충전", state:"buff", icon:"assets/icon_rep_charge.png", text:"소모 시 특정 스킬의 위력이 상승함. 횟수를 최대 20까지 얻을 수 있음. 턴 종료 시 횟수 1 감소" },
   { name:"호흡", state:"buff", icon:"assets/icon_rep_breath.png", text:"적중 시 효과 위력 1당 5%의 확률로 120%의 치명타 피해를 입힘. 턴 종료 시, 치명타 발동 후 횟수 1 감소" },
@@ -7403,6 +7484,20 @@ function getDedicatedKeywordIconFallback(name){
   return map[n] || "";
 }
 
+function getAiSkillImageFallback(skillName){
+  const n = String(skillName || "").trim();
+
+  const map = {
+    // 솔다토 II / III 공용 (네가 assets 폴더에 넣을 이름)
+    "진탕 꿰뚫기": "assets/sk_thumb_soldato_jintang_ggettulgi.png",
+    "작열 꿰뚫기": "assets/sk_thumb_soldato_jakyeol_ggettulgi.png",
+    "추진 가르기": "assets/sk_thumb_soldato_chujin_gareugi.png",
+    "추진탄 재장전": "assets/sk_thumb_soldato_reload.png"
+  };
+
+  return map[n] || "";
+}
+
 function findKeywordAny(name){
   const key = String(name || "").trim();
   if(!key) return null;
@@ -7636,6 +7731,15 @@ bindKwTooltipHover(document.getElementById("enemyKeywordsMini"));
 pvLoadStore();
 pvClearEditor();
 pvRenderBoard();
+
+function ensureKwTooltipBound(el){
+  if(!el) return;
+  if(el.dataset.kwTipBound === "1") return;
+  if(typeof bindKwTooltipHover === "function"){
+    bindKwTooltipHover(el);
+    el.dataset.kwTipBound = "1";
+  }
+}
 
 function toRoman(num){
   const romanMap = [
