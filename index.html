@@ -1464,23 +1464,22 @@
 }
 /* 매치 화면 "현재 뽑은 스킬" 전용 축소 */
 .matchPickedMini{
-  transform: scale(.72);        /* ✅ 대략 1/3 가까이 줄임 느낌 */
+  transform: none !important;
+  width: auto !important;
+  margin-bottom: 8px !important;
+  zoom: .58;                 /* 크롬/엣지에서 레이아웃까지 같이 축소 */
   transform-origin: top left;
-  width: 138%;                  /* scale 축소 보정 */
-  margin-bottom: -58px !important;
 }
 
 #myPickedSkills .matchPickedMini,
 #enemyPickedSkills .matchPickedMini{
   pointer-events: auto;
+  display: block;
 }
 
-/* 효과 텍스트 너무 길면 접기 */
-#myPickedSkills .skListFx,
-#enemyPickedSkills .skListFx{
-  max-height: 52px;
-  overflow: auto;
-  font-size: 11px;
+#myPickedSkills,
+#enemyPickedSkills{
+  overflow: hidden;
 }
 .skListCard:hover{
   background: rgba(255,255,255,.04);
@@ -5080,25 +5079,29 @@ function injectPassiveKeywordTokens(textRaw, unitRaw){
     if(k?.name) allKw.push({ name:String(k.name), state:(k.state==="debuff"?"debuff":"buff") });
   }
 
-  // 긴 이름 먼저 치환 (짧은 이름이 먼저 먹는 거 방지)
+  // 긴 이름 먼저
   allKw.sort((a,b) => b.name.length - a.name.length);
 
-  for(const kw of allKw){
-    const nm = kw.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // ✅ 이미 [[kw:...]] 토큰 구간은 건드리지 않기
+  const parts = text.split(/(\[\[kw:[^\]]+\]\])/g);
 
-    // 이미 [[kw:...]] 안에 들어간 건 건드리지 않도록 너무 과한 치환은 피함
-    // 단순치환(너무 복잡한 정규식보다 안정적)
-    const token = `[[kw:${kw.state}:${kw.name}]]`;
+  for(let i=0; i<parts.length; i++){
+    const part = parts[i];
 
-    // 이미 토큰화된 문자열이면 스킵
-    if(text.includes(token)) continue;
+    // 토큰 조각은 그대로
+    if(/^\[\[kw:[^\]]+\]\]$/.test(part)) continue;
 
-    text = text.replace(new RegExp(nm, "g"), token);
+    let out = part;
+    for(const kw of allKw){
+      const escaped = kw.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const token = `[[kw:${kw.state}:${kw.name}]]`;
+      out = out.replace(new RegExp(escaped, "g"), token);
+    }
+    parts[i] = out;
   }
 
-  return text;
+  return parts.join("");
 }
-
 function openMatchPassiveModal(unitRaw){
   const src = (unitRaw && unitRaw.char) ? unitRaw.char : (unitRaw || {});
   const list = Array.isArray(src?.passives) ? src.passives : [];
